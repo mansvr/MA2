@@ -43,12 +43,13 @@ from pathlib import Path
 import trimesh
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from inference_service import InferenceService
 from trimesh_decimate import (
     DECIMATE_LOGIC_VERSION,
     HAS_FAST_SIMPLIFICATION,
+    decimate_module_sha256_16,
     decimate_to_obj_bytes,
 )
 
@@ -108,15 +109,25 @@ def root() -> dict:
 
 
 @app.get("/v1/health")
-def health() -> dict:
+def health() -> JSONResponse:
     """Use ``decimate_logic_version`` + ``fast_simplification`` to confirm the Space rebuilt with new code."""
-    return {
+    # no-store: avoids stale JSON when proxies cache GET /v1/health
+    body = {
         "status": "ok",
         "model_loaded": _service.ready,
         "trimesh_decimate": True,
         "decimate_logic_version": DECIMATE_LOGIC_VERSION,
         "fast_simplification": HAS_FAST_SIMPLIFICATION,
+        "decimate_module_sha256_16": decimate_module_sha256_16(),
+        "health_schema": 2,
     }
+    return JSONResponse(
+        content=body,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.post("/v1/optimize")

@@ -7,8 +7,10 @@ No neural model — quadric decimation, cleaning, and optional orange vertex col
 
 from __future__ import annotations
 
+import hashlib
 import io
 import sys
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -23,6 +25,13 @@ except ImportError:
 # Exposed for GET /v1/health — bump when decimation logic changes.
 HAS_FAST_SIMPLIFICATION: bool = _HAS_FAST_SIMPLIFICATION
 DECIMATE_LOGIC_VERSION = "multipass-v4"
+
+
+def decimate_module_sha256_16() -> str:
+    """SHA-256 prefix of this file on disk — use with /v1/health to verify the running image."""
+    p = Path(__file__).resolve()
+    return hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+
 
 StrengthTitle = Literal["Conservative", "Moderate", "Aggressive"]
 
