@@ -22,7 +22,7 @@ except ImportError:
 
 # Exposed for GET /v1/health — bump when decimation logic changes.
 HAS_FAST_SIMPLIFICATION: bool = _HAS_FAST_SIMPLIFICATION
-DECIMATE_LOGIC_VERSION = "multipass-v3"
+DECIMATE_LOGIC_VERSION = "multipass-v4"
 
 StrengthTitle = Literal["Conservative", "Moderate", "Aggressive"]
 
@@ -77,6 +77,10 @@ def advanced_mesh_cleaning(
         cleaned_mesh.update_faces(cleaned_mesh.nondegenerate_faces())
     except Exception:
         pass
+    try:
+        cleaned_mesh.remove_unreferenced_vertices()
+    except Exception:
+        pass
     if not aggressive and fill_holes:
         try:
             cleaned_mesh.fill_holes()
@@ -85,12 +89,48 @@ def advanced_mesh_cleaning(
     return cleaned_mesh
 
 
-def _simplify_to_face_count(mesh: trimesh.Trimesh, face_count: int) -> trimesh.Trimesh:
-    """Prefer aggression=9 (trimesh 4.2+) for stubborn meshes; fall back if unsupported."""
-    try:
-        return mesh.simplify_quadric_decimation(face_count=face_count, aggression=9)
-    except TypeError:
-        return mesh.simplify_quadric_decimation(face_count=face_count)
+def _simplify_one_step(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimesh.Trimesh, bool]:
+    """
+    One reduction step toward target_faces.
+
+    Some meshes / fast_simplification builds ignore a single face_count pass (no change).
+    Try face-count variants, then percent-based removal (maps to target_reduction in
+    fast_simplification). Stops at the first strategy that strictly reduces face count.
+    """
+    n = len(mesh.faces)
+    if n <= target_faces:
+        return mesh, True
+    tc = max(1, min(int(target_faces), n - 1))
+    need_ratio = (n - target_faces) / float(n)
+    frac = min(0.95, max(0.05, need_ratio))
+
+    attempts: list[tuple[str, object]] = [
+        ("face_count", lambda: mesh.simplify_quadric_decimation(face_count=tc)),
+        ("face_count_agg9", lambda: mesh.simplify_quadric_decimation(face_count=tc, aggression=9)),
+        ("face_count_agg0", lambda: mesh.simplify_quadric_decimation(face_count=tc, aggression=0)),
+        ("percent_need", lambda: mesh.simplify_quadric_decimation(percent=frac)),
+        ("percent_0.5", lambda: mesh.simplify_quadric_decimation(percent=0.5)),
+        ("percent_0.25", lambda: mesh.simplify_quadric_decimation(percent=0.25)),
+        ("percent_0.1", lambda: mesh.simplify_quadric_decimation(percent=0.1)),
+    ]
+
+    for label, fn in attempts:
+        try:
+            out = fn()  # type: ignore[misc]
+            if len(out.faces) < n:
+                return out, True
+        except TypeError as e:
+            # Older trimesh: aggression may be unsupported
+            print(
+                f"[meshanything /v1/decimate] simplify {label} TypeError: {e}",
+                file=sys.stderr,
+            )
+        except Exception as e:
+            print(
+                f"[meshanything /v1/decimate] simplify {label}: {e}",
+                file=sys.stderr,
+            )
+    return mesh, False
 
 
 def _quadric_reduce_to_target(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimesh.Trimesh, bool]:
@@ -122,14 +162,9 @@ def _quadric_reduce_to_target(mesh: trimesh.Trimesh, target_faces: int) -> tuple
             next_count = target_faces
 
         prev_n = n
-        try:
-            m = _simplify_to_face_count(m, next_count)
-        except Exception as e:
-            print(f"[meshanything /v1/decimate] simplify_quadric_decimation: {e}", file=sys.stderr)
-            return m, False
-
+        m, progressed = _simplify_one_step(m, next_count)
         new_n = len(m.faces)
-        if new_n == prev_n:
+        if not progressed or new_n == prev_n:
             print(
                 f"[meshanything /v1/decimate] no progress at {new_n} faces (want {target_faces})",
                 file=sys.stderr,
