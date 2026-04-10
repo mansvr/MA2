@@ -152,10 +152,20 @@ def _parse_filename_from_content_disposition(value: str) -> str | None:
     return part.split(";", 1)[0].strip()
 
 
+def _response_looks_like_html(resp: requests.Response) -> bool:
+    ct = (resp.headers.get("Content-Type") or "").lower()
+    if "text/html" in ct:
+        return True
+    t = (resp.text or "").lstrip()
+    return t.startswith("<!DOCTYPE") or t.startswith("<html")
+
+
 def _error_from_response(resp: requests.Response) -> MeshAnythingAPIError:
     status = resp.status_code
     detail: str | None = None
     code = resp.headers.get("X-Error-Code")
+    raw_text = resp.text or ""
+
     try:
         payload: Any = resp.json()
         if isinstance(payload, dict):
@@ -177,7 +187,15 @@ def _error_from_response(resp: requests.Response) -> MeshAnythingAPIError:
         detail = None
 
     if detail is None:
-        detail = resp.text[:4000] if resp.text else f"HTTP {status}"
+        if _response_looks_like_html(resp):
+            detail = (
+                "Server returned an HTML page instead of JSON — usually a Hugging Face gateway error, "
+                "OOM/restart, or timeout while the Space was not serving the API. "
+                "Open the Space → Logs, reproduce the request, and look for a Python traceback. "
+                "Confirm the API base URL ends with .hf.space (or your host) and uses /v1/optimize."
+            )
+        else:
+            detail = (raw_text[:1200] if raw_text else f"HTTP {status}").strip()
 
     msg = f"MeshAnything API error ({status}): {detail}"
     return MeshAnythingAPIError(msg, status_code=status, code=code, detail=detail)

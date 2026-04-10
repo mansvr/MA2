@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
+import traceback
 
 
 def _fix_omp_num_threads() -> None:
@@ -215,9 +217,13 @@ async def optimize(
             headers={"X-Error-Code": "INVALID_OPTIONS"},
         ) from e
     except Exception as e:
+        print(
+            "[meshanything /v1/optimize] INFERENCE_FAILED:\n" + traceback.format_exc(),
+            file=sys.stderr,
+        )
         raise HTTPException(
             status_code=500,
-            detail=str(e),
+            detail=str(e) or repr(e),
             headers={"X-Error-Code": "INFERENCE_FAILED"},
         ) from e
     finally:
