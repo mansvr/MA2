@@ -46,7 +46,11 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import Response
 
 from inference_service import InferenceService
-from trimesh_decimate import decimate_to_obj_bytes
+from trimesh_decimate import (
+    DECIMATE_LOGIC_VERSION,
+    HAS_FAST_SIMPLIFICATION,
+    decimate_to_obj_bytes,
+)
 
 MESH_EXTS = {".obj", ".ply", ".glb", ".gltf", ".off", ".stl"}
 DECIMATE_EXTS = {".obj", ".ply", ".stl"}
@@ -105,10 +109,13 @@ def root() -> dict:
 
 @app.get("/v1/health")
 def health() -> dict:
+    """Use ``decimate_logic_version`` + ``fast_simplification`` to confirm the Space rebuilt with new code."""
     return {
         "status": "ok",
         "model_loaded": _service.ready,
         "trimesh_decimate": True,
+        "decimate_logic_version": DECIMATE_LOGIC_VERSION,
+        "fast_simplification": HAS_FAST_SIMPLIFICATION,
     }
 
 

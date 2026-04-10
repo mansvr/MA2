@@ -20,6 +20,10 @@ try:
 except ImportError:
     _HAS_FAST_SIMPLIFICATION = False
 
+# Exposed for GET /v1/health — bump when decimation logic changes.
+HAS_FAST_SIMPLIFICATION: bool = _HAS_FAST_SIMPLIFICATION
+DECIMATE_LOGIC_VERSION = "multipass-v2"
+
 StrengthTitle = Literal["Conservative", "Moderate", "Aggressive"]
 
 _STRENGTH_MAP = {
