@@ -12,3 +12,5 @@ build/
 .pytest_cache/
 .mypy_cache/
 *.log
+# Local smoke-test outputs (integrations/scripts/test_mvp.py, test_decimate.py)
+integrations/scripts/mvp_*_output.obj
