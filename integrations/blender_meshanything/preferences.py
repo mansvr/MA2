@@ -62,6 +62,28 @@ class MeshAnythingPreferences(bpy.types.AddonPreferences):
         ],
         default="none",
     )
+    decimate_target_face_count: bpy.props.IntProperty(
+        name="Decimate: target faces",
+        description="POST /v1/decimate only — trimesh quadric target (like the Streamlit Space slider)",
+        default=800,
+        min=4,
+        max=500000,
+    )
+    decimate_strength: bpy.props.EnumProperty(
+        name="Decimate: strength",
+        description="POST /v1/decimate only — conservative / moderate / aggressive",
+        items=[
+            ("conservative", "Conservative", "Gentle reduction"),
+            ("moderate", "Moderate", "Balanced"),
+            ("aggressive", "Aggressive", "Stronger reduction"),
+        ],
+        default="moderate",
+    )
+    decimate_vertex_colors: bpy.props.BoolProperty(
+        name="Decimate: orange vertex colors",
+        description="POST /v1/decimate enable_ai_style — cosmetic orange tint on vertices",
+        default=True,
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -69,11 +91,18 @@ class MeshAnythingPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "hf_token")
         layout.prop(self, "api_key")
         layout.prop(self, "timeout_sec")
+        layout.separator()
+        layout.label(text="Neural /v1/optimize")
         layout.prop(self, "use_marching_cubes")
         layout.prop(self, "mc_level")
         layout.prop(self, "enable_ai_style")
         layout.prop(self, "target_face_count")
         layout.prop(self, "optimization_strength")
+        layout.separator()
+        layout.label(text="Trimesh only /v1/decimate")
+        layout.prop(self, "decimate_target_face_count")
+        layout.prop(self, "decimate_strength")
+        layout.prop(self, "decimate_vertex_colors")
 
 
 def register() -> None:

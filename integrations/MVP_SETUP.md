@@ -196,12 +196,12 @@ If **502/503**, the Space is still building, **sleeping** (wait and retry), or t
 
 ## Part C — Blender addon
 
-1. Zip the folder **`integrations\blender_meshanything`** so the zip contains `blender_meshanything\__init__.py` at the top level (not an extra parent folder).
+1. Zip the folder **`integrations\blender_meshanything`** so the zip contains `blender_meshanything\__init__.py` at the top level (not an extra parent folder). The folder must also include the bundled **`blender_meshanything\meshanything_client\`** package (REST client); it ships in-repo so the add-on works without a separate `pip install`.
 2. Blender → **Edit → Preferences → Add-ons → Install** → pick the zip → enable **MeshAnything Space API**.
 3. In addon preferences set **API base URL** to your `https://....hf.space`.
 4. Set **Hugging Face token** if the Space is **private** (`hf_...`).
 5. Set **Studio API key** if your server uses `MESHANYTHING_SERVER_API_KEY`.
-6. In the 3D View sidebar (**MeshAnything** tab), select a mesh, run **MeshAnything optimize**.
+6. In the 3D View sidebar (**MeshAnything** tab), select a mesh: **Optimize (neural)** calls `/v1/optimize`; **Decimate (trimesh)** calls `/v1/decimate` only (for side-by-side comparison). Decimate options live under **Trimesh only /v1/decimate** in preferences.
 
 Optional env vars (same as client):
 
@@ -242,6 +242,8 @@ python integrations\scripts\test_mvp.py
 | 401 | Key mismatch; unset server secret to disable auth (dev only) or align Bearer token. |
 | Cold start slow | HF free/paused Spaces; upgrade or keep “always on” if available. |
 | **404 on `POST /v1/decimate`** | The Space is running an **old Docker image** from before that route existed. Push the current repo (with `integrations/space_api/trimesh_decimate.py` + `app.py` route) and let HF **rebuild**. `GET /` should mention `decimate` in JSON when the new image is live. |
+| **`No module named 'meshanything_client'`** in Blender | The add-on zip must contain **`meshanything_client`** inside **`blender_meshanything`** (see repo). Re-zip the whole `integrations\blender_meshanything` folder from a fresh clone. |
+| **`No module named 'requests'`** in Blender | Rare; install `requests` into Blender’s Python (see Blender docs / `python.exe -m pip install requests` in Blender’s directory) or use a build that ships `requests`. |
 
 ---
 

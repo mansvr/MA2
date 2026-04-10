@@ -1,0 +1,2 @@
+Bundled copy of integrations/meshanything_client/meshanything_client/ for Blender zip installs.
+When the REST client changes, copy those four .py files here so the add-on stays in sync.
