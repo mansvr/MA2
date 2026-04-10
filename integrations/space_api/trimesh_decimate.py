@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import sys
 from pathlib import Path
 from typing import Literal
@@ -24,7 +25,7 @@ except ImportError:
 
 # Exposed for GET /v1/health — bump when decimation logic changes.
 HAS_FAST_SIMPLIFICATION: bool = _HAS_FAST_SIMPLIFICATION
-DECIMATE_LOGIC_VERSION = "multipass-v4"
+DECIMATE_LOGIC_VERSION = "multipass-v5"
 
 
 def decimate_module_sha256_16() -> str:
@@ -98,6 +99,81 @@ def advanced_mesh_cleaning(
     return cleaned_mesh
 
 
+def _geometry_for_quadric(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """
+    Bare triangle soup with dtypes fast_simplification expects.
+    Strips visuals; some Blender OBJs carry data that makes the trimesh wrapper a no-op.
+    """
+    m = mesh.copy()
+    try:
+        m.remove_unreferenced_vertices()
+    except Exception:
+        pass
+    for _ in range(2):
+        try:
+            m.update_faces(m.unique_faces())
+        except Exception:
+            break
+        try:
+            m.update_faces(m.nondegenerate_faces())
+        except Exception:
+            pass
+        try:
+            m.remove_duplicate_faces()
+        except Exception:
+            pass
+        m.merge_vertices()
+    try:
+        trimesh.repair.fix_winding(m)
+    except Exception:
+        pass
+    v = np.ascontiguousarray(m.vertices, dtype=np.float64)
+    f = np.ascontiguousarray(m.faces, dtype=np.int64)
+    return trimesh.Trimesh(vertices=v, faces=f, process=False)
+
+
+def _simplify_direct_fast_simplification(
+    mesh: trimesh.Trimesh,
+    *,
+    target_count: int,
+    frac: float,
+    n: int,
+) -> tuple[trimesh.Trimesh | None, str | None]:
+    """Bypass trimesh; call fast_simplification.simplify with float64 / int32 buffers."""
+    import fast_simplification as fs
+
+    v = np.ascontiguousarray(mesh.vertices, dtype=np.float64)
+    f = np.ascontiguousarray(mesh.faces, dtype=np.int32)
+    tc = int(max(1, min(target_count, n - 1)))
+
+    for agg in (10.0, 7.0, 3.0, 0.0):
+        try:
+            vo, fo = fs.simplify(v, f, target_count=tc, agg=agg)
+            if fo.shape[0] < n:
+                return trimesh.Trimesh(vertices=vo, faces=fo, process=False), f"direct_fs_tc_agg{agg:g}"
+        except Exception as e:
+            print(f"[meshanything /v1/decimate] direct_fs target_count agg={agg}: {e}", file=sys.stderr)
+
+    fr = float(min(0.95, max(0.05, frac)))
+    for agg in (10.0, 7.0, 3.0):
+        try:
+            vo, fo = fs.simplify(v, f, target_reduction=fr, agg=agg)
+            if fo.shape[0] < n:
+                return trimesh.Trimesh(vertices=vo, faces=fo, process=False), f"direct_fs_pct_need_agg{agg:g}"
+        except Exception as e:
+            print(f"[meshanything /v1/decimate] direct_fs target_reduction agg={agg}: {e}", file=sys.stderr)
+
+    for pr in (0.5, 0.25, 0.1):
+        for agg in (10.0, 7.0):
+            try:
+                vo, fo = fs.simplify(v, f, target_reduction=float(pr), agg=agg)
+                if fo.shape[0] < n:
+                    return trimesh.Trimesh(vertices=vo, faces=fo, process=False), f"direct_fs_pct{pr}_agg{agg:g}"
+            except Exception as e:
+                print(f"[meshanything /v1/decimate] direct_fs pct={pr} agg={agg}: {e}", file=sys.stderr)
+    return None, None
+
+
 def _simplify_one_step(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimesh.Trimesh, bool]:
     """
     One reduction step toward target_faces.
@@ -139,6 +215,11 @@ def _simplify_one_step(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimes
                 f"[meshanything /v1/decimate] simplify {label}: {e}",
                 file=sys.stderr,
             )
+
+    out, tag = _simplify_direct_fast_simplification(mesh, target_count=tc, frac=frac, n=n)
+    if out is not None and len(out.faces) < n:
+        print(f"[meshanything /v1/decimate] simplify ok via {tag}", file=sys.stderr)
+        return out, True
     return mesh, False
 
 
@@ -163,7 +244,9 @@ def _quadric_reduce_to_target(mesh: trimesh.Trimesh, target_faces: int) -> tuple
 
     for _ in range(32):
         n = len(m.faces)
-        if n <= int(target_faces * 1.05):
+        # Stop when within 5% over target (soft cap), but never while n is still above target
+        # by more than that band (avoids quitting early when target is large vs current n).
+        if n <= math.ceil(float(target_faces) * 1.05):
             return m, True
 
         next_count = max(target_faces, (n + target_faces) // 2)
@@ -196,7 +279,7 @@ def smart_simplify(
     if original_faces <= target_faces:
         return mesh, f"already at target ({original_faces} faces)"
 
-    simplified_mesh = mesh.copy()
+    simplified_mesh = _geometry_for_quadric(mesh.copy())
 
     try:
         simplified_mesh, ok = _quadric_reduce_to_target(simplified_mesh, target_faces)
