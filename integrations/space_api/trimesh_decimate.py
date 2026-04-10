@@ -25,7 +25,7 @@ except ImportError:
 
 # Exposed for GET /v1/health — bump when decimation logic changes.
 HAS_FAST_SIMPLIFICATION: bool = _HAS_FAST_SIMPLIFICATION
-DECIMATE_LOGIC_VERSION = "multipass-v5"
+DECIMATE_LOGIC_VERSION = "multipass-v6"
 
 
 def decimate_module_sha256_16() -> str:
@@ -178,9 +178,9 @@ def _simplify_one_step(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimes
     """
     One reduction step toward target_faces.
 
-    Some meshes / fast_simplification builds ignore a single face_count pass (no change).
-    Try face-count variants, then percent-based removal (maps to target_reduction in
-    fast_simplification). Stops at the first strategy that strictly reduces face count.
+    When ``fast_simplification`` is installed, call it directly (same as modern trimesh
+    4.2+). Older trimesh builds may lack ``aggression`` / ``percent`` kwargs or fall
+    back to Open3D — skipping those attempts keeps logs clean and avoids extra deps.
     """
     n = len(mesh.faces)
     if n <= target_faces:
@@ -189,37 +189,19 @@ def _simplify_one_step(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimes
     need_ratio = (n - target_faces) / float(n)
     frac = min(0.95, max(0.05, need_ratio))
 
-    attempts: list[tuple[str, object]] = [
-        ("face_count", lambda: mesh.simplify_quadric_decimation(face_count=tc)),
-        ("face_count_agg9", lambda: mesh.simplify_quadric_decimation(face_count=tc, aggression=9)),
-        ("face_count_agg0", lambda: mesh.simplify_quadric_decimation(face_count=tc, aggression=0)),
-        ("percent_need", lambda: mesh.simplify_quadric_decimation(percent=frac)),
-        ("percent_0.5", lambda: mesh.simplify_quadric_decimation(percent=0.5)),
-        ("percent_0.25", lambda: mesh.simplify_quadric_decimation(percent=0.25)),
-        ("percent_0.1", lambda: mesh.simplify_quadric_decimation(percent=0.1)),
-    ]
+    if _HAS_FAST_SIMPLIFICATION:
+        out, _tag = _simplify_direct_fast_simplification(mesh, target_count=tc, frac=frac, n=n)
+        if out is not None and len(out.faces) < n:
+            return out, True
+        return mesh, False
 
-    for label, fn in attempts:
-        try:
-            out = fn()  # type: ignore[misc]
-            if len(out.faces) < n:
-                return out, True
-        except TypeError as e:
-            # Older trimesh: aggression may be unsupported
-            print(
-                f"[meshanything /v1/decimate] simplify {label} TypeError: {e}",
-                file=sys.stderr,
-            )
-        except Exception as e:
-            print(
-                f"[meshanything /v1/decimate] simplify {label}: {e}",
-                file=sys.stderr,
-            )
-
-    out, tag = _simplify_direct_fast_simplification(mesh, target_count=tc, frac=frac, n=n)
-    if out is not None and len(out.faces) < n:
-        print(f"[meshanything /v1/decimate] simplify ok via {tag}", file=sys.stderr)
-        return out, True
+    # No fast_simplification: best-effort trimesh (may require open3d on old versions)
+    try:
+        out = mesh.simplify_quadric_decimation(face_count=tc)
+        if len(out.faces) < n:
+            return out, True
+    except Exception as e:
+        print(f"[meshanything /v1/decimate] simplify face_count (trimesh only): {e}", file=sys.stderr)
     return mesh, False
 
 
