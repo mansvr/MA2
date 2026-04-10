@@ -26,6 +26,32 @@ def _get_prefs(context) -> MeshAnythingPreferences:
     return context.preferences.addons["blender_meshanything"].preferences
 
 
+def _export_selection_obj(filepath: str) -> None:
+    """Blender 4.0+ uses wm.obj_export; older builds use export_scene.obj."""
+    if hasattr(bpy.ops.wm, "obj_export"):
+        bpy.ops.wm.obj_export(
+            filepath=filepath,
+            export_selected_objects=True,
+            export_materials=False,
+            export_triangulated_mesh=True,
+        )
+    else:
+        bpy.ops.export_scene.obj(
+            filepath=filepath,
+            use_selection=True,
+            use_materials=False,
+            use_triangles=True,
+        )
+
+
+def _import_obj(filepath: str) -> None:
+    """Blender 4.0+ uses wm.obj_import; older builds use import_scene.obj."""
+    if hasattr(bpy.ops.wm, "obj_import"):
+        bpy.ops.wm.obj_import(filepath=filepath)
+    else:
+        bpy.ops.import_scene.obj(filepath=filepath)
+
+
 class MESHANYTHING_OT_optimize(bpy.types.Operator):
     bl_idname = "meshanything.optimize"
     bl_label = "MeshAnything optimize"
@@ -62,12 +88,7 @@ class MESHANYTHING_OT_optimize(bpy.types.Operator):
         out_path = os.path.join(tmp, "meshanything_output.obj")
 
         try:
-            bpy.ops.export_scene.obj(
-                filepath=in_path,
-                use_selection=True,
-                use_materials=False,
-                use_triangles=True,
-            )
+            _export_selection_obj(in_path)
             opt_kw: dict = {
                 "input_type": "mesh",
                 "mc": prefs.use_marching_cubes,
@@ -80,7 +101,7 @@ class MESHANYTHING_OT_optimize(bpy.types.Operator):
                 opt_kw["optimization_strength"] = prefs.optimization_strength
             result = client.optimize_file(in_path, **opt_kw)
             client.save_result(result, out_path)
-            bpy.ops.import_scene.obj(filepath=out_path)
+            _import_obj(out_path)
         except MeshAnythingAPIError as e:
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
@@ -129,12 +150,7 @@ class MESHANYTHING_OT_decimate_trimesh(bpy.types.Operator):
         out_path = os.path.join(tmp, "meshanything_trimesh_out.obj")
 
         try:
-            bpy.ops.export_scene.obj(
-                filepath=in_path,
-                use_selection=True,
-                use_materials=False,
-                use_triangles=True,
-            )
+            _export_selection_obj(in_path)
             result = client.decimate_file(
                 in_path,
                 target_face_count=int(prefs.decimate_target_face_count),
@@ -142,7 +158,7 @@ class MESHANYTHING_OT_decimate_trimesh(bpy.types.Operator):
                 enable_ai_style=prefs.decimate_vertex_colors,
             )
             client.save_result(result, out_path)
-            bpy.ops.import_scene.obj(filepath=out_path)
+            _import_obj(out_path)
         except MeshAnythingAPIError as e:
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}

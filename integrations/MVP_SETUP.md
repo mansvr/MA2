@@ -244,6 +244,7 @@ python integrations\scripts\test_mvp.py
 | **404 on `POST /v1/decimate`** | The Space is running an **old Docker image** from before that route existed. Push the current repo (with `integrations/space_api/trimesh_decimate.py` + `app.py` route) and let HF **rebuild**. `GET /` should mention `decimate` in JSON when the new image is live. |
 | **`No module named 'meshanything_client'`** in Blender | The add-on zip must contain **`meshanything_client`** inside **`blender_meshanything`** (see repo). Re-zip the whole `integrations\blender_meshanything` folder from a fresh clone. |
 | **`No module named 'requests'`** in Blender | Rare; install `requests` into Blender’s Python (see Blender docs / `python.exe -m pip install requests` in Blender’s directory) or use a build that ships `requests`. |
+| **`export_scene.obj` could not be found** (Blender 4.0+) | The add-on uses **`wm.obj_export` / `wm.obj_import`**; reinstall add-on **0.1.3+** from this repo. |
 
 ---
 

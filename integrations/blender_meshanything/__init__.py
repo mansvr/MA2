@@ -12,7 +12,7 @@ from . import operators, preferences
 bl_info = {
     "name": "MeshAnything Space API",
     "author": "MeshAnything integrations",
-    "version": (0, 1, 2),
+    "version": (0, 1, 3),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > MeshAnything",
     "description": "Call MeshAnything v1 REST API (HF Space or self-hosted)",
