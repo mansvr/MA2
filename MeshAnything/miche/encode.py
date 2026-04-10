@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
 import argparse
+import os
+from pathlib import Path
+
 from omegaconf import OmegaConf
 import numpy as np
 import torch
 from .michelangelo.utils.misc import instantiate_from_config
+
+# encode.py lives at MeshAnything/miche/encode.py — resolve configs from repo root, not process cwd.
+_MICHE_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def load_surface(fp):
     
@@ -40,10 +47,16 @@ def reconstruction(args, model, bounds=(-1.25, -1.25, -1.25, 1.25, 1.25, 1.25), 
     return 0
 
 def load_model(ckpt_path="MeshAnything/miche/shapevae-256.ckpt"):
-    model_config = OmegaConf.load("MeshAnything/miche/shapevae-256.yaml")
+    yaml_path = _MICHE_DIR / "shapevae-256.yaml"
+    model_config = OmegaConf.load(str(yaml_path))
     # print(model_config)
     if hasattr(model_config, "model"):
         model_config = model_config.model
+
+    if ckpt_path is not None and not os.path.isabs(ckpt_path):
+        abs_ckpt = _REPO_ROOT / ckpt_path
+        if abs_ckpt.is_file():
+            ckpt_path = str(abs_ckpt)
 
     model = instantiate_from_config(model_config, ckpt_path=ckpt_path)
     device = "cuda" if torch.cuda.is_available() else "cpu"
