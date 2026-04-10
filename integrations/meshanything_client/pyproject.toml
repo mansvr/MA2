@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meshanything-client"
+version = "0.1.0"
+description = "HTTP client for MeshAnything V2 Space API (v1 REST contract)"
+requires-python = ">=3.10"
+dependencies = [
+  "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["meshanything_client*"]
