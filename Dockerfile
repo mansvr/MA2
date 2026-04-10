@@ -1,7 +1,10 @@
 # Hugging Face Spaces (GPU) + same image works on any NVIDIA host with Docker.
 # Build context: repository root (MeshAnythingV2).
+#
+# Note: pytorch/pytorch:2.1.1-cuda11.8-cudnn8-runtime was removed from Docker Hub.
+# Use a current CUDA 11.8 runtime tag (cudnn9) — still compatible with cu118 wheels / flash-attn builds.
 
-FROM pytorch/pytorch:2.1.1-cuda11.8-cudnn8-runtime
+FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-runtime
 
 WORKDIR /app
 
