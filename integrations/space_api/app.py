@@ -16,6 +16,17 @@ from __future__ import annotations
 
 import os
 import tempfile
+
+
+def _fix_omp_num_threads() -> None:
+    """HF / orchestration sometimes sets OMP_NUM_THREADS to empty or invalid → libgomp warning."""
+    raw = os.environ.get("OMP_NUM_THREADS", "").strip()
+    ok = raw.isdigit() and int(raw) >= 1
+    if not ok:
+        os.environ["OMP_NUM_THREADS"] = "4"
+
+
+_fix_omp_num_threads()
 from pathlib import Path
 
 import trimesh
@@ -65,6 +76,17 @@ def _check_api_key(request: Request) -> None:
 @app.on_event("startup")
 def _startup() -> None:
     _service.load()
+
+
+@app.get("/")
+def root() -> dict:
+    """HF and browsers hit `/`; avoid noisy 404s in logs. API lives under `/v1/`."""
+    return {
+        "service": "meshanything-space-api",
+        "health": "/v1/health",
+        "optimize": "POST /v1/optimize",
+        "docs": "/docs",
+    }
 
 
 @app.get("/v1/health")

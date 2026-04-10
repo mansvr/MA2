@@ -33,4 +33,5 @@ WORKDIR /app/integrations/space_api
 EXPOSE 7860
 
 # HF sets PORT; local Docker defaults to 7860
-CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-7860}"]
+# Force valid OMP before Python (HF sometimes injects empty OMP_NUM_THREADS)
+CMD ["sh", "-c", "export OMP_NUM_THREADS=4; exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-7860}"]
