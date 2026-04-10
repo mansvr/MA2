@@ -65,12 +65,17 @@ class MESHANYTHING_OT_optimize(bpy.types.Operator):
                 use_materials=False,
                 use_triangles=True,
             )
-            result = client.optimize_file(
-                in_path,
-                input_type="mesh",
-                mc=prefs.use_marching_cubes,
-                mc_level=int(prefs.mc_level),
-            )
+            opt_kw: dict = {
+                "input_type": "mesh",
+                "mc": prefs.use_marching_cubes,
+                "mc_level": int(prefs.mc_level),
+                "enable_ai_style": prefs.enable_ai_style,
+            }
+            if int(prefs.target_face_count) > 0:
+                opt_kw["target_face_count"] = int(prefs.target_face_count)
+            elif prefs.optimization_strength != "none":
+                opt_kw["optimization_strength"] = prefs.optimization_strength
+            result = client.optimize_file(in_path, **opt_kw)
             client.save_result(result, out_path)
             bpy.ops.import_scene.obj(filepath=out_path)
         except MeshAnythingAPIError as e:

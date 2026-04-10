@@ -6,8 +6,18 @@ Contract (v1):
     - file: required
     - input_type: mesh | pc_normal (default mesh)
     - mc, mc_level, sampling, seed: optional (match main.py)
+    - enable_ai_style: optional (alias: stochastic generation; ORs with sampling)
+    - target_face_count: optional; after neural mesh, trimesh quadric decimation toward this cap
+    - optimization_strength: optional conservative|moderate|aggressive; if set without
+      target_face_count, derives a target from output face count (trimesh post-process only)
 
   Response: application/octet-stream (OBJ) with Content-Disposition attachment.
+
+  POST /v1/decimate  multipart/form-data (trimesh-only; no neural model)
+    - file: required (.obj, .ply, .stl)
+    - target_face_count: default 800 (same range idea as Streamlit slider)
+    - optimization_strength: conservative|moderate|aggressive
+    - enable_ai_style: optional orange vertex colors (cosmetic; matches old Space)
 
 Errors: JSON { "detail": "...", "code": "..." } (FastAPI-compatible).
 """
@@ -15,6 +25,7 @@ Errors: JSON { "detail": "...", "code": "..." } (FastAPI-compatible).
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 
 
@@ -35,8 +46,10 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import Response
 
 from inference_service import InferenceService
+from trimesh_decimate import decimate_to_obj_bytes
 
 MESH_EXTS = {".obj", ".ply", ".glb", ".gltf", ".off", ".stl"}
+DECIMATE_EXTS = {".obj", ".ply", ".stl"}
 PC_EXTS = {".npy"}
 
 app = FastAPI(title="MeshAnything Space API", version="1.0.0")
@@ -84,14 +97,19 @@ def root() -> dict:
     return {
         "service": "meshanything-space-api",
         "health": "/v1/health",
-        "optimize": "POST /v1/optimize",
+        "optimize": "POST /v1/optimize (neural MeshAnything V2)",
+        "decimate": "POST /v1/decimate (trimesh-only, parity with meshanythingv2-fromlocal)",
         "docs": "/docs",
     }
 
 
 @app.get("/v1/health")
 def health() -> dict:
-    return {"status": "ok", "model_loaded": _service.ready}
+    return {
+        "status": "ok",
+        "model_loaded": _service.ready,
+        "trimesh_decimate": True,
+    }
 
 
 @app.post("/v1/optimize")
@@ -101,7 +119,10 @@ async def optimize(
     mc: bool = Form(False),
     mc_level: int = Form(7),
     sampling: bool = Form(False),
+    enable_ai_style: bool = Form(False),
     seed: int = Form(0),
+    target_face_count: int | None = Form(default=None),
+    optimization_strength: str | None = Form(default=None),
     _: None = Depends(_check_api_key),
 ) -> Response:
     if input_type not in ("mesh", "pc_normal"):
@@ -154,15 +175,27 @@ async def optimize(
                 headers={"X-Error-Code": "LOAD_FAILED"},
             ) from e
 
+    use_sampling = bool(sampling or enable_ai_style)
+    tfc = target_face_count if (target_face_count is not None and target_face_count > 0) else None
     try:
         obj_bytes = _service.optimize(
             in_path,
             input_type=input_type,
             mc=mc,
             mc_level=mc_level,
-            sampling=sampling,
+            sampling=use_sampling,
             seed=seed,
+            target_face_count=tfc,
+            optimization_strength=(optimization_strength.strip() or None)
+            if optimization_strength
+            else None,
         )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=str(e),
+            headers={"X-Error-Code": "INVALID_OPTIONS"},
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -181,6 +214,82 @@ async def optimize(
         media_type="model/obj",
         headers={
             "Content-Disposition": f'attachment; filename="{out_name}"',
+        },
+    )
+
+
+@app.post("/v1/decimate")
+async def decimate(
+    file: UploadFile = File(...),
+    target_face_count: int = Form(800),
+    optimization_strength: str = Form("moderate"),
+    enable_ai_style: bool = Form(True),
+    _: None = Depends(_check_api_key),
+) -> Response:
+    """
+    Trimesh-only decimation (matches Hugging Face Space meshanythingv2-fromlocal Streamlit app).
+    No GPU model required; works even when neural weights are unavailable.
+    """
+    suffix = Path(file.filename or "input").suffix.lower()
+    if suffix not in DECIMATE_EXTS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unsupported extension '{suffix}' for /v1/decimate. "
+                f"Supported: {sorted(DECIMATE_EXTS)}."
+            ),
+            headers={"X-Error-Code": "UNSUPPORTED_FORMAT"},
+        )
+
+    max_mb = float(os.environ.get("MESHANYTHING_MAX_UPLOAD_MB", "128"))
+    body = await file.read()
+    if len(body) > max_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (limit {max_mb} MB).",
+            headers={"X-Error-Code": "PAYLOAD_TOO_LARGE"},
+        )
+
+    tmp_dir = tempfile.mkdtemp(prefix="meshanything_decimate_")
+    in_path = os.path.join(tmp_dir, f"input{suffix}")
+    try:
+        with open(in_path, "wb") as f:
+            f.write(body)
+        try:
+            obj_bytes, msg, faces_in, faces_out = decimate_to_obj_bytes(
+                in_path,
+                target_face_count=target_face_count,
+                optimization_strength=optimization_strength,
+                enable_ai_style=enable_ai_style,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=422,
+                detail=str(e),
+                headers={"X-Error-Code": "INVALID_OPTIONS"},
+            ) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=str(e),
+                headers={"X-Error-Code": "DECIMATE_FAILED"},
+            ) from e
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except OSError:
+            pass
+
+    note = msg.encode("ascii", "replace").decode("ascii")[:512]
+    out_name = f"{Path(file.filename or 'mesh').stem}_trimesh_decimated.obj"
+    return Response(
+        content=obj_bytes,
+        media_type="model/obj",
+        headers={
+            "Content-Disposition": f'attachment; filename="{out_name}"',
+            "X-Trimesh-Faces-In": str(faces_in),
+            "X-Trimesh-Faces-Out": str(faces_out),
+            "X-Trimesh-Note": note,
         },
     )
 

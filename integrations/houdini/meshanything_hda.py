@@ -37,7 +37,10 @@ def optimize_file(
     mc: bool = False,
     mc_level: int = 7,
     sampling: bool = False,
+    enable_ai_style: bool = False,
     seed: int = 0,
+    target_face_count: int | None = None,
+    optimization_strength: str | None = None,
 ) -> str:
     """Call Space API and write optimized OBJ to ``output_obj_path``. Returns output path."""
     cfg = ClientConfig.from_env()
@@ -48,7 +51,10 @@ def optimize_file(
         mc=mc,
         mc_level=mc_level,
         sampling=sampling,
+        enable_ai_style=enable_ai_style,
         seed=seed,
+        target_face_count=target_face_count,
+        optimization_strength=optimization_strength,
     )
     client.save_result(result, output_obj_path)
     return output_obj_path

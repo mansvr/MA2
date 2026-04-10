@@ -178,6 +178,16 @@ Expect:
 1. `GET /v1/health` → `200` and `"model_loaded": true`.
 2. A file `integrations\scripts\mvp_test_output.obj` written.
 
+**Optional knobs (CLI via env for `test_mvp.py`):** `MESHANYTHING_TARGET_FACE_COUNT`, `MESHANYTHING_OPTIMIZATION_STRENGTH` (`conservative` \| `moderate` \| `aggressive`), `MESHANYTHING_ENABLE_AI_STYLE=1`. Same fields exist on **POST `/v1/optimize`** and in the **Blender addon** preferences.
+
+### B3b — “Old Gradio” Space vs this Docker API
+
+Some Spaces show a **slider “target face count”** and text like **“standard Trimesh methods”**. That pattern is **classic mesh decimation** (trimesh / quadric), not the neural MeshAnything V2 forward pass. This repo’s **neural** path is controlled by **`mc` / `mc_level` / `sampling` / `seed`** (see `main.py`). To get **similar UX** to a target face count, the v1 API now applies **optional trimesh quadric decimation** *after* inference when you set **`target_face_count`** or **`optimization_strength`**. That does not change the model; it only caps polygon count on the reconstructed mesh.
+
+**Trimesh-only endpoint (matches [meshanythingv2-fromlocal](https://huggingface.co/spaces/Mansur333/meshanythingv2-fromlocal)):** **`POST /v1/decimate`** — upload **`.obj` / `.ply` / `.stl`**, no GPU weights required. Same idea as the Streamlit app: quadric decimation, cleaning, optional orange vertex colors. Client: `MeshAnythingClient.decimate_file(...)`. Smoke test: `python integrations/scripts/test_decimate.py` (same `MESHANYTHING_API_BASE` env as `test_mvp.py`).
+
+**If the OBJ looks wrong** (e.g. one triangle or extreme loss of detail): try **`MESHANYTHING_ENABLE_AI_STYLE=1`** and/or a different **`seed`**; enable **marching cubes** preprocess for difficult geometry (`mc=true`, `mc_level` 7–8). Degenerate outputs are usually model / conditioning issues, not the decimation step.
+
 If you get **401**, check: (1) studio key matches `MESHANYTHING_SERVER_API_KEY` if you use one; (2) for **private** Spaces, `MESHANYTHING_HF_TOKEN` must be a valid `hf_...` token.  
 If **403** from HF, the Space is private and you forgot the HF token.  
 If **502/503**, the Space is still building, **sleeping** (wait and retry), or the model crashed on startup — open **Space logs**.
@@ -231,6 +241,7 @@ python integrations\scripts\test_mvp.py
 | Health OK but optimize 500 | Model OOM on small GPU; try a larger Space GPU or reduce batch (already 1). |
 | 401 | Key mismatch; unset server secret to disable auth (dev only) or align Bearer token. |
 | Cold start slow | HF free/paused Spaces; upgrade or keep “always on” if available. |
+| **404 on `POST /v1/decimate`** | The Space is running an **old Docker image** from before that route existed. Push the current repo (with `integrations/space_api/trimesh_decimate.py` + `app.py` route) and let HF **rebuild**. `GET /` should mention `decimate` in JSON when the new image is live. |
 
 ---
 

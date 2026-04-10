@@ -4,7 +4,8 @@
 
 ## Contract summary
 
-- **POST** `{base}/v1/optimize` — `multipart/form-data`: `file`, optional `input_type` (`mesh` | `pc_normal`), `mc`, `mc_level`, `sampling`, `seed`.
+- **POST** `{base}/v1/optimize` — `multipart/form-data`: `file`, optional `input_type` (`mesh` | `pc_normal`), `mc`, `mc_level`, `sampling`, `seed`, `enable_ai_style` (ORs with `sampling`), `target_face_count` (optional trimesh quadric cap after the neural mesh), `optimization_strength` (`conservative` \| `moderate` \| `aggressive`, used only when `target_face_count` is omitted).
+- **POST** `{base}/v1/decimate` — **trimesh-only** (no neural model): `file` (`.obj`, `.ply`, `.stl`), `target_face_count` (default `800`), `optimization_strength` (`conservative` \| `moderate` \| `aggressive`), `enable_ai_style` (orange vertex colors, default `true`). Parity with the public Streamlit Space [meshanythingv2-fromlocal](https://huggingface.co/spaces/Mansur333/meshanythingv2-fromlocal). Response headers: `X-Trimesh-Faces-In`, `X-Trimesh-Faces-Out`, `X-Trimesh-Note`.
 - **Response:** `model/obj` bytes; `Content-Disposition` filename `*_meshanything.obj`.
 - **Errors:** JSON `detail` (FastAPI); optional **`X-Error-Code`** header (`UNAUTHORIZED`, `UNSUPPORTED_FORMAT`, `PAYLOAD_TOO_LARGE`, `LOAD_FAILED`, `INFERENCE_FAILED`).
 - **Auth (optional):** set `MESHANYTHING_SERVER_API_KEY` on the server. Clients send **`Authorization: Bearer …`** (public Space) or **`X-MeshAnything-Key`** + **`Authorization: Bearer <HF token>`** for **private** Spaces (see `ClientConfig.build_auth_headers`).

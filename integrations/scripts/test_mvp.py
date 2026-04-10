@@ -9,6 +9,9 @@ Usage (PowerShell):
 
 Optional:
   $env:MESHANYTHING_TEST_MESH="C:\\path\\to\\file.obj"
+  $env:MESHANYTHING_TARGET_FACE_COUNT="800"          # optional; post-decimate with trimesh
+  $env:MESHANYTHING_OPTIMIZATION_STRENGTH="moderate" # conservative|moderate|aggressive (if no target count)
+  $env:MESHANYTHING_ENABLE_AI_STYLE="1"              # stochastic generation (retry bad outputs)
 
 Private Space (HF auth): create a read token at https://huggingface.co/settings/tokens then:
   $env:MESHANYTHING_HF_TOKEN="hf_..."
@@ -63,8 +66,30 @@ def main() -> int:
         return 3
 
     print("POST /v1/optimize with", test_path)
+    print(
+        "Waiting for the Space (GPU inference can take several minutes; "
+        "no further output until the response completes. "
+        f"Timeout: {timeout}s — set MESHANYTHING_TIMEOUT_SEC to adjust.)",
+        flush=True,
+    )
+    tfc_raw = os.environ.get("MESHANYTHING_TARGET_FACE_COUNT", "").strip()
+    strength = os.environ.get("MESHANYTHING_OPTIMIZATION_STRENGTH", "").strip() or None
+    ai_style = os.environ.get("MESHANYTHING_ENABLE_AI_STYLE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    tfc = int(tfc_raw) if tfc_raw.isdigit() else None
+
     client = MeshAnythingClient(cfg)
-    result = client.optimize_file(test_path, input_type="mesh", mc=False)
+    result = client.optimize_file(
+        test_path,
+        input_type="mesh",
+        mc=False,
+        enable_ai_style=ai_style,
+        target_face_count=tfc,
+        optimization_strength=strength,
+    )
     out = _repo / "integrations" / "scripts" / "mvp_test_output.obj"
     client.save_result(result, out)
     print("Wrote", out, "bytes", len(result.data))

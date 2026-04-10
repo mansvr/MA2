@@ -36,7 +36,10 @@ class MeshAnythingClient:
         mc: bool = False,
         mc_level: int = 7,
         sampling: bool = False,
+        enable_ai_style: bool = False,
         seed: int = 0,
+        target_face_count: int | None = None,
+        optimization_strength: str | None = None,
     ) -> OptimizeResult:
         path = Path(file_path)
         if not path.is_file():
@@ -52,7 +55,54 @@ class MeshAnythingClient:
                 "mc": str(mc).lower(),
                 "mc_level": str(mc_level),
                 "sampling": str(sampling).lower(),
+                "enable_ai_style": str(enable_ai_style).lower(),
                 "seed": str(seed),
+            }
+            if target_face_count is not None:
+                data["target_face_count"] = str(target_face_count)
+            if optimization_strength is not None:
+                data["optimization_strength"] = optimization_strength
+            resp = requests.post(
+                url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=self._config.timeout_sec,
+            )
+
+        if resp.status_code >= 400:
+            raise _error_from_response(resp)
+
+        cd = resp.headers.get("Content-Disposition", "")
+        filename = _parse_filename_from_content_disposition(cd)
+        return OptimizeResult(
+            content_type=resp.headers.get("Content-Type", "model/obj"),
+            data=resp.content,
+            filename=filename,
+        )
+
+    def decimate_file(
+        self,
+        file_path: str | Path,
+        *,
+        target_face_count: int = 800,
+        optimization_strength: str = "moderate",
+        enable_ai_style: bool = True,
+    ) -> OptimizeResult:
+        """POST /v1/decimate — trimesh-only (parity with meshanythingv2-fromlocal Space)."""
+        path = Path(file_path)
+        if not path.is_file():
+            raise FileNotFoundError(str(path))
+
+        url = f"{self._config.base_url}/v1/decimate"
+        headers = self._config.build_auth_headers()
+
+        with path.open("rb") as f:
+            files = {"file": (path.name, f, "application/octet-stream")}
+            data = {
+                "target_face_count": str(target_face_count),
+                "optimization_strength": optimization_strength,
+                "enable_ai_style": str(enable_ai_style).lower(),
             }
             resp = requests.post(
                 url,

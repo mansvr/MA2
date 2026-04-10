@@ -24,6 +24,49 @@ if str(_REPO_ROOT) not in sys.path:
 from MeshAnything.models.meshanything_v2 import MeshAnythingV2  # noqa: E402
 from main import Dataset  # noqa: E402
 
+_STRENGTH_TO_RATIO = {
+    "conservative": 0.85,
+    "moderate": 0.55,
+    "aggressive": 0.30,
+}
+
+
+def _resolve_target_face_count(
+    n_faces: int,
+    *,
+    target_face_count: int | None,
+    optimization_strength: str | None,
+) -> int | None:
+    """Return a target face count for optional quadric decimation, or None to skip."""
+    if n_faces < 2:
+        return None
+    if target_face_count is not None:
+        if target_face_count < 4:
+            raise ValueError("target_face_count must be at least 4 when set")
+        return min(target_face_count, n_faces)
+    if optimization_strength:
+        key = optimization_strength.strip().lower()
+        if key not in _STRENGTH_TO_RATIO:
+            allowed = ", ".join(sorted(_STRENGTH_TO_RATIO))
+            raise ValueError(
+                f"optimization_strength must be one of: {allowed} (got {optimization_strength!r})"
+            )
+        return max(4, int(n_faces * _STRENGTH_TO_RATIO[key]))
+    return None
+
+
+def _maybe_simplify_face_count(mesh: trimesh.Trimesh, target_faces: int) -> trimesh.Trimesh:
+    """Reduce face count toward ``target_faces`` using trimesh quadric decimation when available."""
+    if target_faces < 4 or len(mesh.faces) <= target_faces:
+        return mesh
+    try:
+        simplified = mesh.simplify_quadric_decimation(face_count=target_faces)
+    except Exception:
+        return mesh
+    if len(simplified.faces) < 1:
+        return mesh
+    return simplified
+
 
 class InferenceService:
     def __init__(self) -> None:
@@ -57,6 +100,8 @@ class InferenceService:
         mc_level: int,
         sampling: bool,
         seed: int,
+        target_face_count: int | None = None,
+        optimization_strength: str | None = None,
     ) -> bytes:
         if self._accelerator is None or self._model is None:
             raise RuntimeError("Model not loaded")
@@ -98,6 +143,14 @@ class InferenceService:
                         scene_mesh.update_faces(scene_mesh.unique_faces())
                         scene_mesh.remove_unreferenced_vertices()
                         scene_mesh.fix_normals()
+
+                        tgt = _resolve_target_face_count(
+                            len(scene_mesh.faces),
+                            target_face_count=target_face_count,
+                            optimization_strength=optimization_strength,
+                        )
+                        if tgt is not None:
+                            scene_mesh = _maybe_simplify_face_count(scene_mesh, tgt)
 
                         num_faces = len(scene_mesh.faces)
                         brown_color = np.array([255, 165, 0, 255], dtype=np.uint8)
