@@ -59,11 +59,20 @@ def _maybe_simplify_face_count(mesh: trimesh.Trimesh, target_faces: int) -> trim
     """Reduce face count toward ``target_faces`` using trimesh quadric decimation when available."""
     if target_faces < 4 or len(mesh.faces) <= target_faces:
         return mesh
+    n0 = len(mesh.faces)
     try:
         simplified = mesh.simplify_quadric_decimation(face_count=target_faces)
     except Exception:
         return mesh
-    if len(simplified.faces) < 1:
+    n1 = len(simplified.faces)
+    if n1 < 1:
+        return mesh
+    # Some trimesh / backend combos collapse almost everything to a few triangles — keep neural output
+    if n0 >= 100 and n1 < max(16, n0 // 50):
+        print(
+            f"[meshanything /v1/optimize] WARNING: quadric {n0}->{n1} faces looks broken; keeping neural mesh",
+            file=sys.stderr,
+        )
         return mesh
     return simplified
 
@@ -143,6 +152,14 @@ class InferenceService:
                         scene_mesh.update_faces(scene_mesh.unique_faces())
                         scene_mesh.remove_unreferenced_vertices()
                         scene_mesh.fix_normals()
+
+                        nf = len(scene_mesh.faces)
+                        if nf < 16:
+                            print(
+                                f"[meshanything /v1/optimize] WARNING: neural output has only {nf} faces "
+                                "(try disable AI-style sampling, adjust seed, or enable marching cubes for hard meshes)",
+                                file=sys.stderr,
+                            )
 
                         tgt = _resolve_target_face_count(
                             len(scene_mesh.faces),

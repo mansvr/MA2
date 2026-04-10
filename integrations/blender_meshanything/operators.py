@@ -88,17 +88,24 @@ class MESHANYTHING_OT_optimize(bpy.types.Operator):
         out_path = os.path.join(tmp, "meshanything_output.obj")
 
         try:
+            self.report(
+                {"INFO"},
+                "Neural optimize: calling Space (can take several minutes; Blender may look frozen)",
+            )
+            print("[MeshAnything] Neural optimize: waiting for API…")
             _export_selection_obj(in_path)
+            os_ = context.scene.meshanything_optimize
             opt_kw: dict = {
                 "input_type": "mesh",
-                "mc": prefs.use_marching_cubes,
-                "mc_level": int(prefs.mc_level),
-                "enable_ai_style": prefs.enable_ai_style,
+                "mc": os_.use_marching_cubes,
+                "mc_level": int(os_.mc_level),
+                "enable_ai_style": os_.enable_ai_style,
+                "seed": int(os_.seed),
             }
-            if int(prefs.target_face_count) > 0:
-                opt_kw["target_face_count"] = int(prefs.target_face_count)
-            elif prefs.optimization_strength != "none":
-                opt_kw["optimization_strength"] = prefs.optimization_strength
+            if int(os_.target_face_count) > 0:
+                opt_kw["target_face_count"] = int(os_.target_face_count)
+            elif os_.optimization_strength != "none":
+                opt_kw["optimization_strength"] = os_.optimization_strength
             result = client.optimize_file(in_path, **opt_kw)
             client.save_result(result, out_path)
             _import_obj(out_path)
@@ -187,18 +194,27 @@ class MESHANYTHING_PT_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        ds = context.scene.meshanything_decimate
-        box = layout.box()
-        box.label(text="Trimesh /v1/decimate")
-        box.prop(ds, "target_face_count")
-        box.prop(ds, "strength")
-        box.prop(ds, "vertex_colors")
-        col = layout.column(align=True)
-        col.label(text="Neural (/v1/optimize):")
-        col.operator(MESHANYTHING_OT_optimize.bl_idname, text="Optimize (neural)")
-        col.separator()
-        col.label(text="Trimesh only (/v1/decimate):")
-        col.operator(MESHANYTHING_OT_decimate_trimesh.bl_idname, text="Decimate (trimesh)")
+        scene = context.scene
+        os_ = scene.meshanything_optimize
+        ds = scene.meshanything_decimate
+
+        nbox = layout.box()
+        nbox.label(text="Neural /v1/optimize")
+        nbox.label(text="Start: AI-style off, target 0, strength None")
+        nbox.prop(os_, "use_marching_cubes")
+        nbox.prop(os_, "mc_level")
+        nbox.prop(os_, "enable_ai_style")
+        nbox.prop(os_, "seed")
+        nbox.prop(os_, "target_face_count")
+        nbox.prop(os_, "optimization_strength")
+        nbox.operator(MESHANYTHING_OT_optimize.bl_idname, text="Optimize (neural)")
+
+        tbox = layout.box()
+        tbox.label(text="Trimesh /v1/decimate")
+        tbox.prop(ds, "target_face_count")
+        tbox.prop(ds, "strength")
+        tbox.prop(ds, "vertex_colors")
+        tbox.operator(MESHANYTHING_OT_decimate_trimesh.bl_idname, text="Decimate (trimesh)")
 
 
 def register() -> None:
