@@ -22,7 +22,7 @@ except ImportError:
 
 # Exposed for GET /v1/health — bump when decimation logic changes.
 HAS_FAST_SIMPLIFICATION: bool = _HAS_FAST_SIMPLIFICATION
-DECIMATE_LOGIC_VERSION = "multipass-v2"
+DECIMATE_LOGIC_VERSION = "multipass-v3"
 
 StrengthTitle = Literal["Conservative", "Moderate", "Aggressive"]
 
@@ -85,10 +85,21 @@ def advanced_mesh_cleaning(
     return cleaned_mesh
 
 
+def _simplify_to_face_count(mesh: trimesh.Trimesh, face_count: int) -> trimesh.Trimesh:
+    """Prefer aggression=9 (trimesh 4.2+) for stubborn meshes; fall back if unsupported."""
+    try:
+        return mesh.simplify_quadric_decimation(face_count=face_count, aggression=9)
+    except TypeError:
+        return mesh.simplify_quadric_decimation(face_count=face_count)
+
+
 def _quadric_reduce_to_target(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimesh.Trimesh, bool]:
     """
-    Repeated quadric decimation until face count is near target or progress stalls.
-    One call is often insufficient on dense meshes; trimesh/fast_simplification may stop early.
+    Reduce toward target_faces using a midpoint schedule between current and target.
+
+    A single jump (e.g. 20k -> 800) can barely change face count on some
+    fast_simplification / platform builds. The old 0.05% "stall" break made this worse.
+    This matches the spirit of the Streamlit Space multi-step simplify.
     """
     m = mesh
     if len(m.faces) <= target_faces:
@@ -100,23 +111,31 @@ def _quadric_reduce_to_target(mesh: trimesh.Trimesh, target_faces: int) -> tuple
             file=sys.stderr,
         )
         return m, False
-    prev = len(m.faces)
-    for i in range(16):
-        if len(m.faces) <= int(target_faces * 1.08):
+
+    for _ in range(32):
+        n = len(m.faces)
+        if n <= int(target_faces * 1.05):
             return m, True
+
+        next_count = max(target_faces, (n + target_faces) // 2)
+        if next_count >= n:
+            next_count = target_faces
+
+        prev_n = n
         try:
-            m = m.simplify_quadric_decimation(face_count=target_faces)
+            m = _simplify_to_face_count(m, next_count)
         except Exception as e:
             print(f"[meshanything /v1/decimate] simplify_quadric_decimation: {e}", file=sys.stderr)
             return m, False
-        now = len(m.faces)
-        if now >= prev * 0.9995:
+
+        new_n = len(m.faces)
+        if new_n == prev_n:
             print(
-                f"[meshanything /v1/decimate] stall at {now} faces (target {target_faces}), pass {i}",
+                f"[meshanything /v1/decimate] no progress at {new_n} faces (want {target_faces})",
                 file=sys.stderr,
             )
-            break
-        prev = now
+            return m, False
+
     return m, len(m.faces) <= int(target_faces * 1.15)
 
 
@@ -181,7 +200,7 @@ def smart_simplify(
 
         final_faces = len(simplified_mesh.faces)
         reduction = ((original_faces - final_faces) / original_faces) * 100
-        return simplified_mesh, f"reduced by {reduction:.1f}% ({original_faces} → {final_faces} faces)"
+        return simplified_mesh, f"reduced by {reduction:.1f}% ({original_faces} -> {final_faces} faces)"
 
     except Exception as e:
         try:
@@ -198,7 +217,7 @@ def smart_simplify(
             fallback_mesh.update_faces(fallback_mesh.unique_faces())
             final_faces = len(fallback_mesh.faces)
             reduction = ((original_faces - final_faces) / original_faces) * 100
-            return fallback_mesh, f"fallback optimization: {reduction:.1f}% ({original_faces} → {final_faces} faces)"
+            return fallback_mesh, f"fallback optimization: {reduction:.1f}% ({original_faces} -> {final_faces} faces)"
         except Exception as e2:
             return mesh, f"all simplification methods failed: {e!s}; {e2!s}"
 
@@ -235,7 +254,7 @@ def decimate_to_obj_bytes(
         optimized, msg = smart_simplify(cleaned, target_face_count, strength)
     else:
         optimized = cleaned
-        msg = f"mesh already has fewer faces than target ({cleaned_faces} ≤ {target_face_count})"
+        msg = f"mesh already has fewer faces than target ({cleaned_faces} <= {target_face_count})"
 
     optimized.merge_vertices()
     optimized.fix_normals()
