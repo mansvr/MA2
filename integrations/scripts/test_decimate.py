@@ -38,7 +38,21 @@ def main() -> int:
         headers=cfg.build_auth_headers(),
         timeout=30,
     )
-    print("health:", r.status_code, r.text)
+    ct = (r.headers.get("content-type") or "").lower()
+    body_preview = (
+        r.text[:200] + "…" if len(r.text) > 200 else r.text
+    )
+    if r.status_code != 200 and ("html" in ct or r.text.lstrip().startswith("<!")):
+        print("health:", r.status_code, "(HTML response — not your API JSON)", file=sys.stderr)
+        print(
+            "Private Spaces need a Hugging Face read token: "
+            "$env:MESHANYTHING_HF_TOKEN='hf_…' "
+            "(see https://huggingface.co/settings/tokens). "
+            "If the Space is public, confirm the build finished and the URL matches the Space.",
+            file=sys.stderr,
+        )
+    else:
+        print("health:", r.status_code, body_preview if r.status_code != 200 else r.text)
     if r.status_code != 200:
         return 2
 
