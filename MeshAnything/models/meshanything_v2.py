@@ -1,3 +1,5 @@
+import os
+
 import torch
 from torch import nn
 from transformers import AutoModelForCausalLM
@@ -24,12 +26,20 @@ class MeshAnythingV2(nn.Module, PyTorchModelHubMixin,
 
         self.coor_continuous_range = (-0.5, 0.5)
 
+        # Docker / HF Spaces: set MESHANYTHING_USE_SDP_ATTENTION=1 to skip flash-attn (no compile).
+        _use_sdpa = os.environ.get("MESHANYTHING_USE_SDP_ATTENTION", "0").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        _attn_impl = "sdpa" if _use_sdpa else "flash_attention_2"
+
         self.config = ShapeOPTConfig.from_pretrained(
             "facebook/opt-350m",
             n_positions=self.max_length,
             max_position_embeddings=self.max_length,
             vocab_size=self.n_discrete_size + 4,
-            _attn_implementation="flash_attention_2"
+            _attn_implementation=_attn_impl,
         )
 
         self.bos_token_id = 0
@@ -39,7 +49,7 @@ class MeshAnythingV2(nn.Module, PyTorchModelHubMixin,
         self.config.bos_token_id = self.bos_token_id
         self.config.eos_token_id = self.eos_token_id
         self.config.pad_token_id = self.pad_token_id
-        self.config._attn_implementation="flash_attention_2"
+        self.config._attn_implementation = _attn_impl
         self.config.n_discrete_size = self.n_discrete_size
         self.config.face_per_token = self.face_per_token
         self.config.cond_length = self.cond_length
@@ -47,9 +57,11 @@ class MeshAnythingV2(nn.Module, PyTorchModelHubMixin,
         if self.config.word_embed_proj_dim != self.config.hidden_size:
             self.config.word_embed_proj_dim = self.config.hidden_size
         self.transformer = AutoModelForCausalLM.from_config(
-            config=self.config, use_flash_attention_2 = True
+            config=self.config,
+            use_flash_attention_2=not _use_sdpa,
         )
-        self.transformer.to_bettertransformer()
+        if not _use_sdpa:
+            self.transformer.to_bettertransformer()
 
         self.cond_head_proj = nn.Linear(self.cond_dim, self.config.word_embed_proj_dim)
         self.cond_proj = nn.Linear(self.cond_dim * 2, self.config.word_embed_proj_dim)

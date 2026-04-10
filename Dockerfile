@@ -2,7 +2,7 @@
 # Build context: repository root (MeshAnythingV2).
 #
 # Note: pytorch/pytorch:2.1.1-cuda11.8-cudnn8-runtime was removed from Docker Hub.
-# Use a current CUDA 11.8 runtime tag (cudnn9) — still compatible with cu118 wheels / flash-attn builds.
+# Use a current CUDA 11.8 runtime tag (cudnn9).
 
 FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-runtime
 
@@ -20,9 +20,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /app/requirements.txt && \
     pip install --no-cache-dir -r /app/integrations/space_api/requirements.txt
 
-# Required by MeshAnything V2 (transformers / OPT path)
-ENV MAX_JOBS=4
-RUN pip install --no-cache-dir flash-attn --no-build-isolation
+# Skip flash-attn compile (often fails on HF builders). Use PyTorch SDPA in the model instead.
+ENV MESHANYTHING_USE_SDP_ATTENTION=1
 
 COPY . /app
 
