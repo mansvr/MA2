@@ -8,10 +8,17 @@ No neural model — quadric decimation, cleaning, and optional orange vertex col
 from __future__ import annotations
 
 import io
+import sys
 from typing import Literal
 
 import numpy as np
 import trimesh
+
+try:
+    import fast_simplification  # noqa: F401
+    _HAS_FAST_SIMPLIFICATION = True
+except ImportError:
+    _HAS_FAST_SIMPLIFICATION = False
 
 StrengthTitle = Literal["Conservative", "Moderate", "Aggressive"]
 
@@ -45,7 +52,12 @@ def load_mesh_from_path(path: str) -> trimesh.Trimesh:
     return loaded
 
 
-def advanced_mesh_cleaning(mesh: trimesh.Trimesh, *, aggressive: bool) -> trimesh.Trimesh:
+def advanced_mesh_cleaning(
+    mesh: trimesh.Trimesh,
+    *,
+    aggressive: bool,
+    fill_holes: bool = True,
+) -> trimesh.Trimesh:
     """Port of advanced_mesh_cleaning from meshanythingv2-fromlocal app.py."""
     cleaned_mesh = mesh.copy()
     cleaned_mesh.merge_vertices()
@@ -61,12 +73,47 @@ def advanced_mesh_cleaning(mesh: trimesh.Trimesh, *, aggressive: bool) -> trimes
         cleaned_mesh.update_faces(cleaned_mesh.nondegenerate_faces())
     except Exception:
         pass
-    if not aggressive:
+    if not aggressive and fill_holes:
         try:
             cleaned_mesh.fill_holes()
         except Exception:
             pass
     return cleaned_mesh
+
+
+def _quadric_reduce_to_target(mesh: trimesh.Trimesh, target_faces: int) -> tuple[trimesh.Trimesh, bool]:
+    """
+    Repeated quadric decimation until face count is near target or progress stalls.
+    One call is often insufficient on dense meshes; trimesh/fast_simplification may stop early.
+    """
+    m = mesh
+    if len(m.faces) <= target_faces:
+        return m, True
+    if not _HAS_FAST_SIMPLIFICATION:
+        print(
+            "[meshanything /v1/decimate] fast-simplification is not installed; "
+            "quadric decimation will fail. Add fast-simplification to the Space requirements.",
+            file=sys.stderr,
+        )
+        return m, False
+    prev = len(m.faces)
+    for i in range(16):
+        if len(m.faces) <= int(target_faces * 1.08):
+            return m, True
+        try:
+            m = m.simplify_quadric_decimation(face_count=target_faces)
+        except Exception as e:
+            print(f"[meshanything /v1/decimate] simplify_quadric_decimation: {e}", file=sys.stderr)
+            return m, False
+        now = len(m.faces)
+        if now >= prev * 0.9995:
+            print(
+                f"[meshanything /v1/decimate] stall at {now} faces (target {target_faces}), pass {i}",
+                file=sys.stderr,
+            )
+            break
+        prev = now
+    return m, len(m.faces) <= int(target_faces * 1.15)
 
 
 def smart_simplify(
@@ -85,8 +132,14 @@ def smart_simplify(
     simplified_mesh = mesh.copy()
 
     try:
-        simplified_mesh = simplified_mesh.simplify_quadric_decimation(face_count=target_faces)
+        simplified_mesh, ok = _quadric_reduce_to_target(simplified_mesh, target_faces)
         current_faces = len(simplified_mesh.faces)
+        if not ok or current_faces > target_faces * 1.25:
+            print(
+                f"[meshanything /v1/decimate] after quadric loop: {current_faces} faces "
+                f"(target {target_faces}), ok={ok}",
+                file=sys.stderr,
+            )
 
         if current_faces > target_faces * 1.3 and strength in ("Moderate", "Aggressive"):
             temp_mesh = mesh.copy()
@@ -116,7 +169,7 @@ def smart_simplify(
                 _ = merge_distance  # original app passed this to merge_vertices; trimesh uses digits
                 merge_mesh.merge_vertices()
                 if len(merge_mesh.faces) > target_faces:
-                    merge_mesh = merge_mesh.simplify_quadric_decimation(face_count=target_faces)
+                    merge_mesh, _ = _quadric_reduce_to_target(merge_mesh, target_faces)
                 if len(merge_mesh.faces) < len(simplified_mesh.faces):
                     simplified_mesh = merge_mesh
             except Exception:
@@ -166,16 +219,19 @@ def decimate_to_obj_bytes(
     mesh = load_mesh_from_path(input_path)
     original_faces = len(mesh.faces)
 
+    # fill_holes=False: hole fill can add complex topology and block quadric reduction
     cleaned = advanced_mesh_cleaning(
         mesh,
         aggressive=(strength == "Aggressive"),
+        fill_holes=False,
     )
+    cleaned_faces = len(cleaned.faces)
 
-    if original_faces > target_face_count:
+    if cleaned_faces > target_face_count:
         optimized, msg = smart_simplify(cleaned, target_face_count, strength)
     else:
         optimized = cleaned
-        msg = f"mesh already has fewer faces than target ({original_faces} ≤ {target_face_count})"
+        msg = f"mesh already has fewer faces than target ({cleaned_faces} ≤ {target_face_count})"
 
     optimized.merge_vertices()
     optimized.fix_normals()
@@ -187,6 +243,12 @@ def decimate_to_obj_bytes(
             pass
 
     final_faces = len(optimized.faces)
+    if final_faces > target_face_count * 1.2:
+        print(
+            f"[meshanything /v1/decimate] WARNING: output still has {final_faces} faces "
+            f"(target was {target_face_count}). Check mesh manifoldness / Space logs.",
+            file=sys.stderr,
+        )
     buf = io.BytesIO()
     optimized.export(buf, file_type="obj")
     return buf.getvalue(), msg, original_faces, final_faces

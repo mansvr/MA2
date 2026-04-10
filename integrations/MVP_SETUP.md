@@ -201,7 +201,9 @@ If **502/503**, the Space is still building, **sleeping** (wait and retry), or t
 3. In addon preferences set **API base URL** to your `https://....hf.space`.
 4. Set **Hugging Face token** if the Space is **private** (`hf_...`).
 5. Set **Studio API key** if your server uses `MESHANYTHING_SERVER_API_KEY`.
-6. In the 3D View sidebar (**MeshAnything** tab), select a mesh: **Optimize (neural)** calls `/v1/optimize`; **Decimate (trimesh)** calls `/v1/decimate` only (for side-by-side comparison). Decimate options live under **Trimesh only /v1/decimate** in preferences.
+6. In the 3D View sidebar (**MeshAnything** tab), set **Trimesh /v1/decimate** (target faces, strength, vertex colors) if you use **Decimate (trimesh)**. Select a mesh: **Optimize (neural)** → `/v1/optimize`; **Decimate (trimesh)** → `/v1/decimate` only. After **Decimate**, the info line shows **server face counts** (`X-Trimesh-Faces-In` → `Out`) when the Space returns headers; open **Window → Toggle System Console** (Windows) to see `[MeshAnything] Decimate: …` logs.
+
+**Logs / routing:** **Hugging Face:** Space → **Logs** (runtime) and **Build logs** (Docker). **Blender:** System Console for add-on `print` output. **API:** `GET /` and `GET /v1/health` from a browser or `curl` (with HF token if private). Redeploy the Space after server changes so **fast-simplification** and the multi-pass decimator are active.
 
 Optional env vars (same as client):
 

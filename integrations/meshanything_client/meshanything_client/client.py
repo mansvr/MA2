@@ -15,11 +15,14 @@ InputType = Literal["mesh", "pc_normal"]
 
 @dataclass(frozen=True)
 class OptimizeResult:
-    """Result of a successful /v1/optimize call."""
+    """Result of a successful /v1/optimize or /v1/decimate call."""
 
     content_type: str
     data: bytes
     filename: str | None = None
+    faces_in: int | None = None
+    faces_out: int | None = None
+    server_note: str | None = None
 
 
 class MeshAnythingClient:
@@ -121,12 +124,22 @@ class MeshAnythingClient:
             content_type=resp.headers.get("Content-Type", "model/obj"),
             data=resp.content,
             filename=filename,
+            faces_in=_parse_int_header(resp.headers.get("X-Trimesh-Faces-In")),
+            faces_out=_parse_int_header(resp.headers.get("X-Trimesh-Faces-Out")),
+            server_note=resp.headers.get("X-Trimesh-Note"),
         )
 
     def save_result(self, result: OptimizeResult, out_path: str | Path) -> Path:
         out = Path(out_path)
         out.write_bytes(result.data)
         return out
+
+
+def _parse_int_header(value: str | None) -> int | None:
+    if not value:
+        return None
+    s = value.strip()
+    return int(s) if s.isdigit() else None
 
 
 def _parse_filename_from_content_disposition(value: str) -> str | None:

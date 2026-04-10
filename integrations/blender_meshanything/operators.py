@@ -151,11 +151,12 @@ class MESHANYTHING_OT_decimate_trimesh(bpy.types.Operator):
 
         try:
             _export_selection_obj(in_path)
+            ds = context.scene.meshanything_decimate
             result = client.decimate_file(
                 in_path,
-                target_face_count=int(prefs.decimate_target_face_count),
-                optimization_strength=prefs.decimate_strength,
-                enable_ai_style=prefs.decimate_vertex_colors,
+                target_face_count=int(ds.target_face_count),
+                optimization_strength=ds.strength,
+                enable_ai_style=ds.vertex_colors,
             )
             client.save_result(result, out_path)
             _import_obj(out_path)
@@ -166,7 +167,14 @@ class MESHANYTHING_OT_decimate_trimesh(bpy.types.Operator):
             self.report({"ERROR"}, f"{type(e).__name__}: {e}")
             return {"CANCELLED"}
 
-        self.report({"INFO"}, "Trimesh /v1/decimate import complete")
+        parts: list[str] = []
+        if result.faces_in is not None and result.faces_out is not None:
+            parts.append(f"{result.faces_in} → {result.faces_out} faces (server)")
+        if result.server_note:
+            parts.append(str(result.server_note)[:160])
+        msg = " | ".join(parts) if parts else "import complete"
+        self.report({"INFO"}, f"Decimate: {msg}")
+        print(f"[MeshAnything] Decimate: {msg}")
         return {"FINISHED"}
 
 
@@ -179,6 +187,12 @@ class MESHANYTHING_PT_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        ds = context.scene.meshanything_decimate
+        box = layout.box()
+        box.label(text="Trimesh /v1/decimate")
+        box.prop(ds, "target_face_count")
+        box.prop(ds, "strength")
+        box.prop(ds, "vertex_colors")
         col = layout.column(align=True)
         col.label(text="Neural (/v1/optimize):")
         col.operator(MESHANYTHING_OT_optimize.bl_idname, text="Optimize (neural)")
