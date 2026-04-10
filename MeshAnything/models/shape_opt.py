@@ -1,4 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoConfig, OPTConfig
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from transformers.models.opt.modeling_opt import OPTForCausalLM, OPTModel, OPTDecoder, OPTLearnedPositionalEmbedding, OPTDecoderLayer
 from typing import List, Optional, Tuple, Union
 from einops import repeat
@@ -317,7 +318,21 @@ class ShapeOPTDecoder(OPTDecoder):
                 else attention_mask
             )
         else:
-            raise ValueError("Only flash_attention_2 is supported in MeshAnything")
+            # SDPA / eager: same as transformers OPTDecoder — 4D causal mask (see modeling_opt.py)
+            if attention_mask is None:
+                attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
+            elif attention_mask.shape[1] != mask_seq_length:
+                raise ValueError(
+                    f"The provided attention mask has length {attention_mask.shape[1]}, but its length should be "
+                    f"{mask_seq_length} (sum of the lengths of current and past inputs)"
+                )
+            input_shape = inputs_embeds.shape[:-1]
+            causal_attention_mask = _prepare_4d_causal_attention_mask(
+                attention_mask,
+                input_shape,
+                inputs_embeds,
+                past_key_values_length,
+            )
 
         pos_embeds = self.embed_positions(attention_mask, past_key_values_length)
 
