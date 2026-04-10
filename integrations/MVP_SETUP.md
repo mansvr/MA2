@@ -24,13 +24,76 @@ This guide assumes you are new to this stack. The **goal** is one working HTTPS 
 - This repo pushed to **your** GitHub (or HF Git). The repo root must contain the **`Dockerfile`** we added.
 - A **paid GPU** on Space (or CPU-only will **not** run this model in practice). Pick at least a small GPU (e.g. T4 class) for testing; larger is faster.
 
-### A2. Create the Space
+### A2. Step 2 — Create a Docker Space (pick one path)
 
-1. HF → **Spaces** → **Create new Space**.
-2. Name it, visibility **Private** if you do not want a public URL.
-3. **SDK**: **Docker**.
-4. **Hardware**: pick a **GPU** tier (required).
-5. Connect your **GitHub repo** that contains this code, branch `main` (or your default).
+You need: **Docker SDK**, **GPU hardware**, and **this repo’s code** on the Space (via Git push or GitHub sync).
+
+#### Can the AI “run HF CLI for you”?
+
+**Not with your account.** Creating a Space needs a **write token** tied to **your** Hugging Face login. Anyone helping you can only give commands; **you** run them in your own terminal (or add your token to an environment you control). Never paste a full `hf_…` token into chat.
+
+---
+
+#### Path W — Web UI (good if you dislike the terminal)
+
+1. Log in at [huggingface.co](https://huggingface.co).
+2. **[Spaces](https://huggingface.co/spaces)** → **Create new Space**.
+3. **Owner / name**: e.g. `Mansur333` / `ma2-api` (name must be unique in your namespace).
+4. **License** / **Visibility**: set **Private** if you want.
+5. **SDK**: **Docker** (not Gradio).
+6. **Hardware**: choose a **GPU** (e.g. **T4 small** is a common entry tier for tests). CPU-only will not run this model.
+7. **Repo**: either **(a)** create an **empty** Space and push git later (step A2c), or **(b)** if the UI offers **“Import from GitHub”**, pick [github.com/mansvr/MA2](https://github.com/mansvr/MA2) and branch `main`.
+
+Reference: [Docker Spaces](https://huggingface.co/docs/hub/spaces-sdks-docker), [Spaces overview](https://huggingface.co/docs/hub/spaces-overview).
+
+---
+
+#### Path C — Python script (same result as the UI; good for repeatability)
+
+Requires **`huggingface_hub`** (already pulled in with many ML installs; upgrade if needed):
+
+```powershell
+pip install -U "huggingface_hub>=0.20"
+$env:HF_TOKEN = "hf_..."   # create at https://huggingface.co/settings/tokens — use “write” for repo creation
+cd o:\MeshanythingV2
+python integrations\scripts\create_hf_space.py --repo-id YourHFUsername/ma2-api --hardware t4-small --private
+```
+
+Replace `YourHFUsername/ma2-api` with your real Hub namespace and Space name.  
+`--hardware` accepts values like `cpu-basic`, `t4-small`, `t4-medium`, `l4x1`, `a10g-small` (see script error message for the full list).
+
+If the Space **already exists**, add `--exist-ok` or delete/rename the Space on the Hub first.
+
+---
+
+#### Path L — Classic `huggingface-cli` (older installs)
+
+If you have the legacy CLI (no `hf` command):
+
+```powershell
+huggingface-cli login
+huggingface-cli repo create ma2-api --type space --space_sdk docker -y
+```
+
+That creates `YourUsername/ma2-api` on the Hub. **Hardware tier** is not always exposed here — set GPU in the Space **Settings → Hardware** on the website, or use **Path C** instead.
+
+---
+
+#### A2c. Push this repo to the Space (if the Space is not auto-synced from GitHub)
+
+From your clone (with `main` containing `Dockerfile` + YAML in `README.md`):
+
+```powershell
+cd o:\MeshanythingV2
+git remote add hf https://huggingface.co/spaces/YourHFUsername/ma2-api
+git push hf main
+```
+
+Use the **exact** Space URL from the Hub (`https://huggingface.co/spaces/USER/NAME` → git remote is `https://huggingface.co/spaces/USER/NAME`). If `git push` asks for credentials, use your **HF username** and **token** as the password.
+
+**Newer CLI:** after `pip install -U huggingface_hub`, you may get the `hf` command. Then you can also use `hf upload` / sync patterns; the git remote above is the most straightforward for a full repo.
+
+This repo’s root **`README.md` now starts with YAML** (`sdk: docker`, `app_port: 7860`) so the Space is recognized as a **Docker** Space when the files are on the Hub.
 
 ### A3. Space settings (secrets)
 
@@ -72,9 +135,9 @@ Your API base is:
 
 (lowercase; no trailing slash). Example: `https://mansur333-meshanythingv2-fromlocal.hf.space`. Use this as **`MESHANYTHING_API_BASE`** everywhere—not the `huggingface.co/spaces/...` URL.
 
-### A6. Optional: README for the Space card
+### A6. README / Space card
 
-HF Spaces can show a title/description from the **first lines** of `README.md`. Your upstream README is paper-focused; you can prepend a small YAML block **at the very top** of `README.md` only on your fork if you want a nicer card (see [HF Spaces docs](https://huggingface.co/docs/hub/spaces-sdks-landing)).
+The **YAML frontmatter** at the top of `README.md` in this fork configures the Space card (`sdk: docker`, etc.). Adjust `title` / `emoji` there if you like (see [HF Spaces docs](https://huggingface.co/docs/hub/spaces-sdks-landing)).
 
 ---
 

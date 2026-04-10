@@ -1,3 +1,13 @@
+---
+title: MeshAnything V2 MA2
+emoji: 🐳
+colorFrom: gray
+colorTo: blue
+sdk: docker
+app_port: 7860
+license: mit
+---
+
 <p align="center">
   <h3 align="center"><strong>MeshAnything V2:<br> Artist-Created Mesh Generation<br>With Adjacent Mesh Tokenization</strong></h3>
 
