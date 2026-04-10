@@ -178,7 +178,7 @@ Expect:
 1. `GET /v1/health` → `200` and `"model_loaded": true`.
 2. A file `integrations\scripts\mvp_test_output.obj` written.
 
-**Optional knobs (CLI via env for `test_mvp.py`):** `MESHANYTHING_TARGET_FACE_COUNT`, `MESHANYTHING_OPTIMIZATION_STRENGTH` (`conservative` \| `moderate` \| `aggressive`), `MESHANYTHING_ENABLE_AI_STYLE=1`. Same fields exist on **POST `/v1/optimize`** and in the **Blender addon** preferences.
+**Optional knobs (CLI via env for `test_mvp.py`):** `MESHANYTHING_TARGET_FACE_COUNT`, `MESHANYTHING_OPTIMIZATION_STRENGTH` (`conservative` \| `moderate` \| `aggressive`), `MESHANYTHING_ENABLE_AI_STYLE=1`. Same fields exist on **POST `/v1/optimize`** and in the **Blender addon** N-panel (**Neural /v1/optimize**).
 
 ### B3b — “Old Gradio” Space vs this Docker API
 
@@ -201,7 +201,7 @@ If **502/503**, the Space is still building, **sleeping** (wait and retry), or t
 3. In addon preferences set **API base URL** to your `https://....hf.space`.
 4. Set **Hugging Face token** if the Space is **private** (`hf_...`).
 5. Set **Studio API key** if your server uses `MESHANYTHING_SERVER_API_KEY`.
-6. In the 3D View sidebar (**MeshAnything** tab), set **Trimesh /v1/decimate** (target faces, strength, vertex colors) if you use **Decimate (trimesh)**. Select a mesh: **Optimize (neural)** → `/v1/optimize`; **Decimate (trimesh)** → `/v1/decimate` only. After **Decimate**, the info line shows **server face counts** (`X-Trimesh-Faces-In` → `Out`) when the Space returns headers; open **Window → Toggle System Console** (Windows) to see `[MeshAnything] Decimate: …` logs.
+6. In the 3D View sidebar (**MeshAnything** tab), set **Neural /v1/optimize** (marching cubes, MC level, AI-style sampling, target face count, strength) and/or **Trimesh /v1/decimate** (target faces, strength, vertex colors) as needed. Select a mesh: **Optimize (neural)** → `/v1/optimize`; **Decimate (trimesh)** → `/v1/decimate` only. After **Decimate**, the info line shows **server face counts** (`X-Trimesh-Faces-In` → `Out`) when the Space returns headers; open **Window → Toggle System Console** (Windows) to see `[MeshAnything] Decimate: …` logs.
 
 **Logs / routing:** **Hugging Face:** Space → **Logs** (runtime) and **Build logs** (Docker). **Blender:** System Console for add-on `print` output. **API:** `GET /` and `GET /v1/health` from a browser or `curl` (with HF token if private).
 

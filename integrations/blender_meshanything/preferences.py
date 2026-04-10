@@ -27,41 +27,6 @@ class MeshAnythingPreferences(bpy.types.AddonPreferences):
         min=30.0,
         max=7200.0,
     )
-    use_marching_cubes: bpy.props.BoolProperty(
-        name="Marching cubes preprocess",
-        description="Matches main.py --mc",
-        default=False,
-    )
-    mc_level: bpy.props.IntProperty(
-        name="MC level",
-        description="2**level grid size (7 => 128)",
-        default=7,
-        min=5,
-        max=10,
-    )
-    enable_ai_style: bpy.props.BoolProperty(
-        name="AI-style sampling",
-        description="Stochastic generation (matches API enable_ai_style / sampling)",
-        default=False,
-    )
-    target_face_count: bpy.props.IntProperty(
-        name="Target face count",
-        description="After inference, cap faces with trimesh quadric decimation (0 = no cap)",
-        default=0,
-        min=0,
-        max=500000,
-    )
-    optimization_strength: bpy.props.EnumProperty(
-        name="Optimization strength",
-        description="If target face count is 0, optional preset to reduce faces after inference",
-        items=[
-            ("none", "None", "No strength preset (neural mesh only)"),
-            ("conservative", "Conservative", "Keep more faces (~85% of output)"),
-            ("moderate", "Moderate", "Balanced (~55%)"),
-            ("aggressive", "Aggressive", "Fewer faces (~30%)"),
-        ],
-        default="none",
-    )
 
     def draw(self, context):
         layout = self.layout
@@ -70,14 +35,8 @@ class MeshAnythingPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "api_key")
         layout.prop(self, "timeout_sec")
         layout.separator()
-        layout.label(text="Neural /v1/optimize")
-        layout.prop(self, "use_marching_cubes")
-        layout.prop(self, "mc_level")
-        layout.prop(self, "enable_ai_style")
-        layout.prop(self, "target_face_count")
-        layout.prop(self, "optimization_strength")
-        layout.separator()
-        layout.label(text="Trimesh /v1/decimate options are in the 3D View sidebar (N-panel).")
+        layout.label(text="Neural (/v1/optimize) and Trimesh (/v1/decimate) options are in the")
+        layout.label(text="3D View sidebar (N-panel) → MeshAnything.")
 
 
 def register() -> None:
