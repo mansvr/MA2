@@ -6,7 +6,9 @@ Uses the same Dataset + forward path as main.py for parity with CLI batch infere
 
 from __future__ import annotations
 
+import contextlib
 import io
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -29,6 +31,15 @@ _STRENGTH_TO_RATIO = {
     "moderate": 0.55,
     "aggressive": 0.30,
 }
+
+# fp16 autocast often yields mostly-NaN face tokens → a single triangle after masking; full precision fixes this on T4/L4/A10G.
+_MIN_VALID_NEURAL_FACES = 32
+_LOGGED_FP32_HINT = False
+
+
+def _env_truthy(name: str) -> bool:
+    v = os.environ.get(name, "").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 
 def _resolve_target_face_count(
@@ -128,55 +139,84 @@ class InferenceService:
         uid = Path(input_path).stem
         out_obj: bytes | None = None
 
+        use_amp = _env_truthy("MESHANYTHING_OPTIMIZE_USE_AUTOCAST")
+        global _LOGGED_FP32_HINT
+        if not use_amp and not _LOGGED_FP32_HINT:
+            print(
+                "[meshanything /v1/optimize] fp32 input + no AMP for forward "
+                "(MESHANYTHING_OPTIMIZE_USE_AUTOCAST=1 re-enables fp16 autocast)",
+                file=sys.stderr,
+            )
+            _LOGGED_FP32_HINT = True
+
         with torch.inference_mode():
-            with self._accelerator.autocast():
-                for batch_data_label in loader:
-                    outputs = self._model(batch_data_label["pc_normal"], sampling=sampling)
-                    batch_size = outputs.shape[0]
-                    for batch_id in range(batch_size):
-                        recon_mesh = outputs[batch_id]
-                        valid_mask = torch.all(~torch.isnan(recon_mesh.reshape((-1, 9))), dim=1)
-                        recon_mesh = recon_mesh[valid_mask]
-                        vertices = recon_mesh.reshape(-1, 3).cpu()
-                        vertices_index = np.arange(len(vertices))
-                        triangles = vertices_index.reshape(-1, 3)
-
-                        scene_mesh = trimesh.Trimesh(
-                            vertices=vertices,
-                            faces=triangles,
-                            force="mesh",
-                            merge_primitives=True,
+            for batch_data_label in loader:
+                pc = batch_data_label["pc_normal"].float()
+                amp_ctx = (
+                    self._accelerator.autocast()
+                    if use_amp
+                    else contextlib.nullcontext()
+                )
+                with amp_ctx:
+                    outputs = self._model(pc, sampling=sampling)
+                batch_size = outputs.shape[0]
+                for batch_id in range(batch_size):
+                    recon_mesh = outputs[batch_id]
+                    valid_mask = torch.all(~torch.isnan(recon_mesh.reshape((-1, 9))), dim=1)
+                    recon_mesh = recon_mesh[valid_mask]
+                    if recon_mesh.numel() == 0:
+                        raise ValueError(
+                            "Neural output has no valid faces (all NaN). "
+                            "Try: disable AI-style sampling, change seed, enable marching cubes preprocess, "
+                            "or verify the input mesh samples correctly."
                         )
-                        scene_mesh.merge_vertices()
-                        scene_mesh.update_faces(scene_mesh.nondegenerate_faces())
-                        scene_mesh.update_faces(scene_mesh.unique_faces())
-                        scene_mesh.remove_unreferenced_vertices()
-                        scene_mesh.fix_normals()
-
-                        nf = len(scene_mesh.faces)
-                        if nf < 16:
-                            print(
-                                f"[meshanything /v1/optimize] WARNING: neural output has only {nf} faces "
-                                "(try disable AI-style sampling, adjust seed, or enable marching cubes for hard meshes)",
-                                file=sys.stderr,
-                            )
-
-                        tgt = _resolve_target_face_count(
-                            len(scene_mesh.faces),
-                            target_face_count=target_face_count,
-                            optimization_strength=optimization_strength,
+                    n_faces_raw = int(recon_mesh.shape[0])
+                    if n_faces_raw < _MIN_VALID_NEURAL_FACES:
+                        raise ValueError(
+                            f"Neural output has only {n_faces_raw} valid faces (mostly NaN). "
+                            "Try: disable AI-style sampling, change seed, enable marching cubes, "
+                            "or set MESHANYTHING_OPTIMIZE_USE_AUTOCAST=1 only if you need speed and see acceptable quality."
                         )
-                        if tgt is not None:
-                            scene_mesh = _maybe_simplify_face_count(scene_mesh, tgt)
+                    vertices = recon_mesh.reshape(-1, 3).cpu()
+                    vertices_index = np.arange(len(vertices))
+                    triangles = vertices_index.reshape(-1, 3)
 
-                        num_faces = len(scene_mesh.faces)
-                        brown_color = np.array([255, 165, 0, 255], dtype=np.uint8)
-                        face_colors = np.tile(brown_color, (num_faces, 1))
-                        scene_mesh.visual.face_colors = face_colors
+                    scene_mesh = trimesh.Trimesh(
+                        vertices=vertices,
+                        faces=triangles,
+                        force="mesh",
+                        merge_primitives=True,
+                    )
+                    scene_mesh.merge_vertices()
+                    scene_mesh.update_faces(scene_mesh.nondegenerate_faces())
+                    scene_mesh.update_faces(scene_mesh.unique_faces())
+                    scene_mesh.remove_unreferenced_vertices()
+                    scene_mesh.fix_normals()
 
-                        buf = io.BytesIO()
-                        scene_mesh.export(buf, file_type="obj")
-                        out_obj = buf.getvalue()
+                    nf = len(scene_mesh.faces)
+                    if nf < 16:
+                        print(
+                            f"[meshanything /v1/optimize] WARNING: neural output has only {nf} faces "
+                            "(try disable AI-style sampling, adjust seed, or enable marching cubes for hard meshes)",
+                            file=sys.stderr,
+                        )
+
+                    tgt = _resolve_target_face_count(
+                        len(scene_mesh.faces),
+                        target_face_count=target_face_count,
+                        optimization_strength=optimization_strength,
+                    )
+                    if tgt is not None:
+                        scene_mesh = _maybe_simplify_face_count(scene_mesh, tgt)
+
+                    num_faces = len(scene_mesh.faces)
+                    brown_color = np.array([255, 165, 0, 255], dtype=np.uint8)
+                    face_colors = np.tile(brown_color, (num_faces, 1))
+                    scene_mesh.visual.face_colors = face_colors
+
+                    buf = io.BytesIO()
+                    scene_mesh.export(buf, file_type="obj")
+                    out_obj = buf.getvalue()
 
         if out_obj is None:
             raise RuntimeError(f"No output produced for uid={uid}")
