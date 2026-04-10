@@ -22,6 +22,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Skip flash-attn compile (often fails on HF builders). Use PyTorch SDPA in the model instead.
 ENV MESHANYTHING_USE_SDP_ATTENTION=1
+# Avoid invalid OMP_NUM_THREADS from host (libgomp warnings)
+ENV OMP_NUM_THREADS=4
 
 COPY . /app
 
